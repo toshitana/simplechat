@@ -1,9 +1,8 @@
 # lambda/index.py
 import json
 import os
-import boto3
 import re  # 正規表現モジュールをインポート
-from botocore.exceptions import ClientError
+import urllib.request
 
 
 # Lambda コンテキストからリージョンを抽出する関数
@@ -82,23 +81,34 @@ def lambda_handler(event, context):
         
         print("Calling Bedrock invoke_model API with payload:", json.dumps(request_payload))
         
-        # invoke_model APIを呼び出し
-        response = bedrock_client.invoke_model(
-            modelId=MODEL_ID,
-            body=json.dumps(request_payload),
-            contentType="application/json"
-        )
-        
-        # レスポンスを解析
-        response_body = json.loads(response['body'].read())
-        print("Bedrock response:", json.dumps(response_body, default=str))
-        
-        # 応答の検証
-        if not response_body.get('output') or not response_body['output'].get('message') or not response_body['output']['message'].get('content'):
-            raise Exception("No response content from the model")
-        
-        # アシスタントの応答を取得
-        assistant_response = response_body['output']['message']['content'][0]['text']
+        # 新しいエンドポイントへのAPIリクエスト
+        url = "https://085c-34-16-238-128.ngrok-free.app/generate"
+        data = {
+            "prompt": message,
+            "max_new_tokens": 128,
+            "do_sample": True,
+            "temperature": 0.7,
+            "top_p": 0.9
+        }
+        json_data = json.dumps(data).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json"
+        }
+        req = urllib.request.Request(url, data=json_data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req) as res:
+                response_body = res.read()
+                response_json = json.loads(response_body)
+                print("生成結果:", response_json["generated_text"])
+                print("応答時間:", response_json["response_time"])
+                assistant_response = response_json["generated_text"]
+        except urllib.error.HTTPError as e:
+            print("HTTPエラー:", e.code, e.reason)
+            print(e.read().decode())
+            raise Exception(f"HTTPエラー: {e.code} {e.reason}")
+        except urllib.error.URLError as e:
+            print("URLエラー:", e.reason)
+            raise Exception(f"URLエラー: {e.reason}")
         
         # アシスタントの応答を会話履歴に追加
         messages.append({
